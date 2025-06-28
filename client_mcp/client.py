@@ -44,10 +44,7 @@ class AWSKnowledgeBase:
     """RAG system for AWS documentation"""
     
     def __init__(self):
-        self.chroma_client = chromadb.Client(Settings(
-            chroma_db_impl="duckdb+parquet",
-            persist_directory="./aws_knowledge_base"
-        ))
+        self.chroma_client = chromadb.PersistentClient(path="./aws_knowledge_base")
         
         # Create or get collection
         try:
