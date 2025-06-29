@@ -1,13 +1,15 @@
+from concurrent.futures import ThreadPoolExecutor
 import os
 import json
 import asyncio
+import threading
 from typing import Optional, Dict, List, Any
 from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import wraps
 import traceback
 
-from flask import Flask, request, jsonify, Response, stream_with_context
+from flask import Flask, request, jsonify, Response, stream_with_context, copy_current_request_context
 from flask_cors import CORS
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
@@ -36,6 +38,9 @@ CORS(app)
 
 # Database connection pool
 db_pool = None
+
+# thread pool for async operations
+executor = ThreadPoolExecutor(max_workers=10)
 
 # Validation Schemas
 class EC2InstanceSchema(Schema):
@@ -106,12 +111,9 @@ def validate_json(schema_class):
 def async_route(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(f(*args, **kwargs))
-        finally:
-            loop.close()
+        # asyncio.run() creates a new event loop for each request
+        # This avoids context issues
+        return asyncio.run(f(*args, **kwargs))
     return decorated_function
 
 # Database initialization
@@ -212,9 +214,8 @@ def health_check():
     })
 
 @app.route('/ec2/instances', methods=['POST'])
-@async_route
 @validate_json(EC2InstanceSchema)
-async def create_ec2_instance(data):
+def create_ec2_instance(data):
     """Create EC2 instance endpoint"""
     def generate():
         yield stream_response("Starting EC2 instance creation...", "info")
@@ -232,7 +233,6 @@ async def create_ec2_instance(data):
             
             if use_terraform:
                 yield stream_response("Generating Terraform configuration...", "info")
-                # Terraform implementation would go here
                 yield stream_response("Terraform execution not implemented in this demo", "warning")
             else:
                 yield stream_response("Creating EC2 instance via AWS API...", "info")
@@ -282,14 +282,19 @@ async def create_ec2_instance(data):
                 
                 execution_time = int((datetime.now() - start_time).total_seconds() * 1000)
                 
-                # Log operation asynchronously
-                asyncio.create_task(log_operation(
-                    "create_ec2_instance",
-                    params,
-                    {"instance_id": instance_id},
-                    "success",
-                    execution_time_ms=execution_time
-                ))
+                # Log operation in background thread
+                def log_in_background():
+                    asyncio.run(log_operation(
+                        "create_ec2_instance",
+                        params,
+                        {"instance_id": instance_id},
+                        "success",
+                        execution_time_ms=execution_time
+                    ))
+                
+                thread = threading.Thread(target=log_in_background)
+                thread.daemon = True
+                thread.start()
                 
                 yield stream_response(f"✅ EC2 instance created successfully!", "success")
                 yield stream_response(f"Instance ID: {instance_id}", "success")
@@ -301,22 +306,26 @@ async def create_ec2_instance(data):
             logger.error(f"Error creating EC2 instance: {error_msg}")
             yield stream_response(f"❌ Error: {error_msg}", "error")
             
-            # Log error asynchronously
-            asyncio.create_task(log_operation(
-                "create_ec2_instance",
-                data,
-                None,
-                "error",
-                error_msg
-            ))
+            # Log error in background
+            def log_error_in_background():
+                asyncio.run(log_operation(
+                    "create_ec2_instance",
+                    data,
+                    None,
+                    "error",
+                    error_msg
+                ))
+            
+            thread = threading.Thread(target=log_error_in_background)
+            thread.daemon = True
+            thread.start()
     
     return Response(stream_with_context(generate()), content_type='application/x-ndjson')
 
 @app.route('/ec2/instances', methods=['GET'])
-@async_route
-async def list_ec2_instances():
+def list_ec2_instances():
     """List EC2 instances endpoint"""
-    async def generate():
+    def generate():
         yield stream_response("Fetching EC2 instances...", "info")
         
         try:
@@ -367,13 +376,18 @@ async def list_ec2_instances():
                 yield stream_response(f"   Launch Time: {inst['LaunchTime']}", "info")
                 yield stream_response("", "info")  # Empty line for readability
             
-            # Log operation
-            await log_operation(
-                "list_ec2_instances",
-                {"state_filter": state_filter, "tag_filters": tag_filters},
-                {"count": len(instances)},
-                "success"
-            )
+            # Log operation in background
+            def log_in_background():
+                asyncio.run(log_operation(
+                    "list_ec2_instances",
+                    {"state_filter": state_filter, "tag_filters": tag_filters},
+                    {"count": len(instances)},
+                    "success"
+                ))
+            
+            thread = threading.Thread(target=log_in_background)
+            thread.daemon = True
+            thread.start()
             
         except Exception as e:
             error_msg = str(e)
@@ -381,6 +395,7 @@ async def list_ec2_instances():
             yield stream_response(f"❌ Error: {error_msg}", "error")
     
     return Response(stream_with_context(generate()), content_type='application/x-ndjson')
+
 
 @app.route('/ec2/instances/<instance_id>/stop', methods=['POST'])
 @async_route
