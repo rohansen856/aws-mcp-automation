@@ -8,7 +8,7 @@ A natural language interface for AWS resource management using the MCP (Model-Co
 - **Infrastructure as Code**: Terraform integration for reproducible deployments
 - **Comprehensive Audit Logging**: PostgreSQL-based tracking of all operations
 - **Cost Analysis & Visualization**: Generate cost reports and graphs
-- **RAG-Enhanced Responses**: Knowledge base for AWS best practices
+- **RAG-Enhanced Responses**: Knowledge base for AWS best practices using ChromaDB
 - **Multi-Service Support**: EC2, S3, Cost Explorer, and generic AWS commands
 - **Interactive Session Management**: Maintains context across conversations
 
@@ -205,7 +205,7 @@ Would you like me to help you implement any of these cost-saving measures?
    - Multi-provider support
 
 3. **ChromaDB for RAG**:
-   - Lightweight and embedded
+   - Persistent client for knowledge base storage
    - Good performance for small-medium knowledge bases
    - Easy integration with Python
 

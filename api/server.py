@@ -81,7 +81,7 @@ def handle_validation_error(e):
     return jsonify({"error": "Validation error", "messages": e.messages}), 400
 
 @app.errorhandler(404)
-def handle_not_found(_):
+def handle_not_found(e):
     return jsonify({"error": "Endpoint not found"}), 404
 
 @app.errorhandler(500)
@@ -536,7 +536,7 @@ async def list_s3_buckets():
                 # Get size and object count if requested
                 if include_size or include_object_count:
                     try:
-                        _ = get_aws_client('cloudwatch')
+                        cloudwatch = get_aws_client('cloudwatch')
                         
                         if include_size:
                             yield stream_response("   Fetching bucket size...", "info")
@@ -1016,11 +1016,7 @@ async def shutdown(error=None):
     """Clean up resources"""
     global db_pool
     if db_pool:
-        try:
-            if not db_pool._loop.is_closed():
-                await db_pool.close()
-        except Exception as e:
-            logger.error(f"Error during shutdown: {str(e)}")
+        await db_pool.close()
 
 # Error handler for all unhandled exceptions
 @app.errorhandler(Exception)
